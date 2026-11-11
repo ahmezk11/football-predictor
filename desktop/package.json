@@ -1,0 +1,55 @@
+{
+  "name": "match-predictor",
+  "productName": "Match Predictor",
+  "version": "1.0.0",
+  "description": "Football match outcome predictions, as a desktop app",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.ahmedkhan.matchpredictor",
+    "productName": "Match Predictor",
+    "files": [
+      "main.js",
+      "loading.html",
+      "package.json",
+      "icon.icns"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist/pyi/predictor-server",
+        "to": "backend"
+      },
+      {
+        "from": "../models",
+        "to": "models"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.sports",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "icon.icns",
+      "identity": null
+    },
+    "directories": {
+      "output": "../dist/desktop"
+    },
+    "electronLanguages": [
+      "en-US"
+    ]
+  }
+}

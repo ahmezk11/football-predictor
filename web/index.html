@@ -1,0 +1,1409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Match Predictor</title>
+<style>
+/* ======================================================================
+   Tokens. Dark is the primary look (as in most football apps); light is
+   the same system with its own tuned values, never an inversion.
+   ====================================================================== */
+:root{
+  --bg:#0b0d10; --surface:#14171c; --surface-2:#1a1e24; --surface-3:#222731;
+  --line:#252a33; --line-2:#303642;
+  --text:#eef1f5; --text-2:#a8b0bc; --text-3:#818a98;
+  --accent:#2bd46c; --accent-ink:#06220f; --accent-text:#3ddc79;
+  --accent-soft:color-mix(in srgb,var(--accent) 14%,transparent);
+  --home:#2bd46c; --draw:#8f98a7; --away:#5b9bff;
+  --win:#2bd46c; --loss:#f25a63; --tie:#8f98a7;
+  --danger:#f25a63;
+  --shadow:0 12px 40px rgba(0,0,0,.45);
+  --r-sm:8px; --r:12px; --r-lg:16px;
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Inter,Roboto,system-ui,sans-serif;
+  --ease:cubic-bezier(.2,.8,.2,1);
+  --side:236px;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){
+  :root{
+    --bg:#f2f4f7; --surface:#ffffff; --surface-2:#f5f7fa; --surface-3:#eaedf2;
+    --line:#e3e7ed; --line-2:#d5dae2;
+    --text:#10141a; --text-2:#4a5361; --text-3:#626b79;
+    --accent:#12a150; --accent-ink:#ffffff; --accent-text:#0b7a3a;
+    --home:#12a150; --draw:#7d8594; --away:#2f6fe0;
+    --win:#12a150; --loss:#d93a44; --tie:#7d8594; --danger:#d93a44;
+    --shadow:0 12px 40px rgba(16,20,26,.14);
+    color-scheme:light;
+  }
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 var(--font);
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+[hidden]{display:none !important}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+svg.i{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.9;
+  stroke-linecap:round;stroke-linejoin:round}
+
+/* Desktop shell: the window has no title bar, so thin strips at the top act
+   as one. Everything else is explicitly no-drag; an inherited drag region
+   once swallowed every mouse click in this app. */
+body{-webkit-app-region:no-drag}
+.drag{-webkit-app-region:drag}
+.drag button,.drag select,.drag input,.drag a{-webkit-app-region:no-drag}
+
+/* ======================================================================
+   Layout: sidebar navigation on desktop, bottom bar on narrow windows.
+   ====================================================================== */
+.app{display:grid;grid-template-columns:var(--side) 1fr;min-height:100vh}
+.sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;
+  background:var(--surface);border-right:1px solid var(--line);padding:0 12px 14px}
+.side-drag{height:46px;flex:none}
+.brand{display:flex;align-items:center;gap:10px;padding:2px 8px 18px}
+.brand-mark{width:30px;height:30px;border-radius:9px;background:var(--accent);
+  display:grid;place-items:center;color:var(--accent-ink)}
+.brand-mark svg{width:18px;height:18px;stroke-width:2.2}
+.brand b{font-size:15px;letter-spacing:-.01em}
+
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav button{display:flex;align-items:center;gap:12px;min-height:42px;padding:0 12px;
+  border:0;border-radius:10px;background:transparent;color:var(--text-2);font-weight:560;
+  text-align:left;transition:background .15s var(--ease),color .15s var(--ease)}
+.nav button:hover{background:var(--surface-2);color:var(--text)}
+.nav button[aria-current="page"]{background:var(--accent-soft);color:var(--accent-text)}
+.nav .badge{margin-left:auto;font-size:11px;font-weight:650;color:var(--text-3)}
+
+.side-label{font-size:11px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--text-3);padding:22px 12px 8px}
+.side-leagues{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.side-leagues button{width:100%;display:flex;align-items:center;gap:10px;min-height:38px;
+  padding:0 12px;border:0;border-radius:10px;background:transparent;color:var(--text-2);
+  font-size:13.5px;text-align:left;transition:background .15s var(--ease)}
+.side-leagues button:hover{background:var(--surface-2);color:var(--text)}
+.side-leagues button.active{color:var(--text);background:var(--surface-2)}
+.side-leagues .count{margin-left:auto;font-size:11.5px;color:var(--text-3)}
+
+.side-foot{margin-top:auto;padding:12px 4px 0;border-top:1px solid var(--line)}
+.update{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;
+  min-height:40px;border:1px solid var(--line-2);border-radius:10px;background:var(--surface-2);
+  font-weight:560;color:var(--text);transition:background .15s var(--ease)}
+.update:hover{background:var(--surface-3)}
+.update[disabled]{opacity:.6;cursor:default}
+.update.spin svg{animation:spin 1s linear infinite}
+.side-meta{font-size:12px;color:var(--text-3);text-align:center;margin-top:8px}
+
+.main{min-width:0}
+.topbar{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);
+  border-bottom:1px solid var(--line)}
+.topbar-inner{max-width:1040px;margin:0 auto;padding:22px 32px 16px;display:flex;
+  align-items:flex-end;gap:16px;flex-wrap:wrap}
+.topbar h1{margin:0;font-size:26px;line-height:1.15;letter-spacing:-.025em}
+.topbar p{margin:4px 0 0;color:var(--text-2);font-size:13.5px}
+.topbar .tools{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.content{max-width:1040px;margin:0 auto;padding:20px 32px 64px}
+
+/* ======================================================================
+   Controls
+   ====================================================================== */
+.seg{display:inline-flex;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:10px;padding:3px;gap:2px}
+.seg button{border:0;background:transparent;color:var(--text-2);font-weight:560;font-size:13px;
+  min-height:32px;padding:0 12px;border-radius:7px;transition:background .15s var(--ease)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--text);
+  box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.select{appearance:none;min-height:38px;padding:0 34px 0 12px;border-radius:10px;
+  border:1px solid var(--line-2);background:var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b93a1' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center;
+  font-weight:540}
+.btn{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:0 14px;
+  border-radius:10px;border:1px solid var(--line-2);background:var(--surface-2);font-weight:560;
+  transition:background .15s var(--ease)}
+.btn:hover{background:var(--surface-3)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn[disabled]{opacity:.55;cursor:default}
+.icon-btn{width:38px;height:38px;display:grid;place-items:center;border-radius:10px;
+  border:1px solid var(--line-2);background:var(--surface-2);color:var(--text-2)}
+.icon-btn:hover{color:var(--text);background:var(--surface-3)}
+
+/* League pills (Predict) */
+.league-pills{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.league-pills button{display:flex;align-items:center;gap:9px;min-height:40px;padding:0 14px 0 8px;
+  border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--text-2);
+  font-weight:580;transition:border-color .15s var(--ease),background .15s var(--ease)}
+.league-pills button:hover{border-color:var(--line-2);color:var(--text)}
+.league-pills button[aria-pressed="true"]{border-color:var(--accent);color:var(--text);
+  background:var(--accent-soft)}
+.league-pills .count{font-size:12px;color:var(--text-3);font-weight:600}
+.lg-chip{display:inline-grid;place-items:center;min-width:34px;height:22px;padding:0 6px;
+  border-radius:6px;font-size:10.5px;font-weight:750;letter-spacing:.04em;color:#fff;
+  background:var(--lg,#555)}
+
+/* Round stepper */
+.round{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.round .stepper{display:flex;align-items:center;background:var(--surface);border:1px solid var(--line);
+  border-radius:12px;padding:3px}
+.round .stepper button{width:36px;height:34px;border:0;border-radius:9px;background:transparent;
+  color:var(--text-2);display:grid;place-items:center}
+.round .stepper button:hover:not([disabled]){background:var(--surface-2);color:var(--text)}
+.round .stepper button[disabled]{opacity:.35;cursor:default}
+.round .stepper select{border:0;background:transparent;font-weight:650;font-size:14px;
+  min-height:34px;padding:0 8px;text-align:center;appearance:none;cursor:pointer}
+.round .summary{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;
+  background:var(--surface-2);border:1px solid var(--line);font-size:12px;color:var(--text-2);font-weight:560}
+.pill b{color:var(--text);font-weight:680}
+
+/* ======================================================================
+   Fixture list: the heart of every football app.
+   ====================================================================== */
+.day{margin-top:18px}
+.day-head{display:flex;align-items:baseline;gap:10px;padding:0 4px 8px}
+.day-head h2{margin:0;font-size:13px;font-weight:700;letter-spacing:.02em}
+.day-head span{font-size:12px;color:var(--text-3)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden}
+
+.fx{width:100%;display:grid;align-items:center;gap:12px;
+  grid-template-columns:64px minmax(0,1fr) 72px minmax(0,1fr) 168px 28px;
+  min-height:62px;padding:10px 14px;border:0;border-bottom:1px solid var(--line);
+  background:transparent;text-align:left;transition:background .15s var(--ease)}
+.fx:last-child{border-bottom:0}
+button.fx:hover{background:var(--surface-2)}
+.fx.no-meta{grid-template-columns:minmax(0,1fr) 72px minmax(0,1fr) 168px 28px}
+.fx.no-meta .why{grid-column:4 / span 2}
+.fx.muted{opacity:.55}
+.fx .meta{display:flex;flex-direction:column;align-items:flex-start;gap:3px;font-size:12px;color:var(--text-3);line-height:1.2}
+.fx .team{display:flex;align-items:center;gap:10px;min-width:0;font-size:14.5px;font-weight:560}
+.fx .team.home{justify-content:flex-end;text-align:right}
+.fx .team .name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fx .team.won .name{font-weight:720}
+.fx .team.lost .name{color:var(--text-2)}
+.fx .center{display:grid;place-items:center;font-weight:700;font-size:15px}
+.fx .center .time{font-size:14px;color:var(--text);font-weight:650}
+.fx .center .score{display:flex;gap:6px;align-items:center;font-size:17px;font-weight:760}
+.fx .center .score i{font-style:normal;color:var(--text-3);font-weight:500}
+.fx .center .sub{font-size:10.5px;color:var(--text-3);font-weight:600;letter-spacing:.04em}
+.fx .why{grid-column:5 / span 2;font-size:12px;color:var(--text-3);text-align:right}
+
+.crest{--c1:#444;--c2:#fff;flex:none;display:grid;place-items:center;width:28px;height:30px;
+  font-size:9.5px;font-weight:800;letter-spacing:.02em;color:var(--c2);background:var(--c1);
+  border-radius:7px 7px 14px 14px / 7px 7px 12px 12px;
+  box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--c2) 35%,transparent)}
+.crest.lg{width:56px;height:60px;font-size:17px;border-radius:12px 12px 28px 28px / 12px 12px 24px 24px}
+.crest.md{width:36px;height:39px;font-size:11.5px}
+
+/* 1 / X / 2 style outcome boxes */
+.odds{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.ob{display:flex;flex-direction:column;align-items:center;justify-content:center;height:40px;
+  border-radius:9px;background:var(--surface-2);border:1px solid var(--line);line-height:1.1}
+.ob b{font-size:10px;font-weight:700;color:var(--text-3);letter-spacing:.06em}
+.ob span{font-size:13px;font-weight:680}
+.ob.pick{background:var(--accent-soft);border-color:color-mix(in srgb,var(--accent) 55%,transparent)}
+.ob.pick b{color:var(--accent-text)}
+.ob.pick.miss{background:color-mix(in srgb,var(--loss) 12%,transparent);
+  border-color:color-mix(in srgb,var(--loss) 50%,transparent)}
+.ob.pick.miss b{color:var(--loss)}
+
+.mark{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;justify-self:end}
+.mark svg{width:14px;height:14px;stroke-width:2.6}
+.mark.ok{background:color-mix(in srgb,var(--win) 18%,transparent);color:var(--win)}
+.mark.bad{background:color-mix(in srgb,var(--loss) 16%,transparent);color:var(--loss)}
+.mark.lock,.mark.wait{color:var(--text-3)}
+.mark.lock svg,.mark.wait svg{width:15px;height:15px;stroke-width:2}
+
+/* Skeletons */
+.sk{height:62px;border-bottom:1px solid var(--line);display:grid;align-items:center;gap:12px;
+  grid-template-columns:64px 1fr 72px 1fr 168px;padding:0 14px}
+.sk:last-child{border-bottom:0}
+.sk i{display:block;height:12px;border-radius:6px;background:linear-gradient(90deg,var(--surface-2),var(--surface-3),var(--surface-2));
+  background-size:200% 100%;animation:shimmer 1.3s ease-in-out infinite}
+.sk i.box{height:40px;border-radius:9px}
+
+/* Empty & error states */
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;
+  padding:48px 24px;color:var(--text-2)}
+.empty .glyph{width:52px;height:52px;border-radius:16px;background:var(--surface-2);
+  display:grid;place-items:center;color:var(--text-3)}
+.empty .glyph svg{width:24px;height:24px}
+.empty h3{margin:4px 0 0;color:var(--text);font-size:16px}
+.empty p{margin:0;max-width:420px;font-size:13.5px}
+.alert{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:12px;margin-bottom:14px;
+  background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger);
+  border:1px solid color-mix(in srgb,var(--danger) 30%,transparent);font-size:13.5px}
+.alert.info{background:var(--surface-2);color:var(--text-2);border-color:var(--line)}
+
+/* ======================================================================
+   History
+   ====================================================================== */
+.stats{display:grid;grid-template-columns:1.25fr repeat(3,1fr);gap:12px;margin-bottom:12px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px}
+.tile .k{font-size:12px;color:var(--text-3);font-weight:600}
+.tile .v{font-size:28px;font-weight:760;letter-spacing:-.02em;margin-top:4px}
+.tile .s{font-size:12.5px;color:var(--text-2);margin-top:2px}
+.tile.ring{display:flex;align-items:center;gap:16px}
+.ring-chart{--p:0;width:78px;height:78px;border-radius:50%;flex:none;display:grid;place-items:center;
+  background:conic-gradient(var(--accent) calc(var(--p)*1%),var(--surface-3) 0)}
+.ring-chart::before{content:"";grid-area:1/1;width:62px;height:62px;border-radius:50%;background:var(--surface)}
+.ring-chart span{grid-area:1/1;font-size:17px;font-weight:760}
+.calls{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;margin-bottom:6px}
+.calls h3{margin:0 0 12px;font-size:13px}
+.calls-row{display:grid;grid-template-columns:78px 1fr 1fr;gap:14px;align-items:center;font-size:12.5px;margin-top:8px}
+.bar{height:8px;border-radius:4px;background:var(--surface-3);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:4px;background:var(--c,var(--accent))}
+.calls-legend{display:grid;grid-template-columns:78px 1fr 1fr;gap:14px;font-size:11px;color:var(--text-3);font-weight:600}
+
+.vs-table{width:100%;border-collapse:collapse;font-size:13px}
+.vs-table th{font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-3);text-align:right;padding:0 0 8px}
+.vs-table th:first-child{text-align:left}
+.vs-table td{padding:7px 0;border-top:1px solid var(--line);text-align:right}
+.vs-table td:first-child{text-align:left;color:var(--text-2)}
+.vs-table tr.me td{color:var(--text);font-weight:680}
+.vs-table tr.me td:first-child{color:var(--accent-text)}
+.scores{display:grid;gap:7px}
+.score-row{display:grid;grid-template-columns:62px 1fr 46px;align-items:center;gap:10px;font-size:13px}
+.score-row b{font-family:var(--mono);font-weight:700}
+.score-row .val{text-align:right;color:var(--text-2)}
+.goal-markets{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.goal-markets div{background:var(--surface-2);border-radius:10px;padding:11px 12px}
+.goal-markets b{display:block;font-size:19px;font-weight:760}
+.goal-markets span{font-size:11.5px;color:var(--text-3)}
+
+/* ======================================================================
+   Charts. Series colours are chart-only tokens, stepped for each surface and
+   checked for colour-blind separation - the app's semantic green/grey/blue
+   failed that test as adjacent stacked segments.
+   ====================================================================== */
+.viz{--c-home:#199e70;--c-draw:#c98500;--c-away:#3987e5;--c-line:#3ddc79;
+     --grid:var(--line);margin-top:2px}
+@media (prefers-color-scheme: light){
+  .viz{--c-home:#1baf7a;--c-draw:#eda100;--c-away:#2a78d6;--c-line:#0b7a3a}
+}
+.viz svg{width:100%;height:auto;display:block;overflow:visible}
+.viz .axis{font-size:10px;fill:var(--text-3)}
+.viz .grid line{stroke:var(--grid);stroke-width:1}
+.viz .mark-line{fill:none;stroke:var(--c-line);stroke-width:2;stroke-linejoin:round}
+.viz .mark-dot{fill:var(--c-line)}
+.viz .baseline{stroke:var(--text-3);stroke-width:1;stroke-dasharray:4 4}
+.viz .seg{stroke:var(--surface);stroke-width:2}
+.viz .hit{fill:transparent;cursor:crosshair}
+.viz .hit:hover + .focus,.viz .hit:focus-visible + .focus{opacity:1}
+.viz .focus{opacity:0;pointer-events:none}
+.viz .direct{font-size:11px;font-weight:700;fill:var(--text)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text-2);margin:2px 0 10px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:10px;height:10px;border-radius:3px;display:block}
+.viz-tip{position:absolute;pointer-events:none;background:var(--surface-3);
+  border:1px solid var(--line-2);border-radius:8px;padding:7px 9px;font-size:12px;
+  box-shadow:var(--shadow);opacity:0;transition:opacity .12s var(--ease);z-index:20;white-space:nowrap}
+.viz-tip.on{opacity:1}
+.viz-wrap{position:relative}
+.viz-table{max-height:240px;overflow:auto;margin-top:10px}
+.viz-note{font-size:11.5px;color:var(--text-3);margin:10px 0 0}
+
+/* ======================================================================
+   My teams
+   ====================================================================== */
+.teams-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.team-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px;
+  display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center}
+.team-card h3{margin:0;font-size:15px}
+.team-card .sub{font-size:12px;color:var(--text-3)}
+.team-card .row2{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;
+  padding-top:12px;border-top:1px solid var(--line)}
+.form{display:flex;gap:4px}
+.form i{width:20px;height:20px;border-radius:5px;display:grid;place-items:center;font-style:normal;
+  font-size:10.5px;font-weight:760;color:#fff}
+.form i.W{background:var(--win);color:#04220f} .form i.D{background:var(--tie)} .form i.L{background:var(--loss)}
+.form i.none{background:var(--surface-3);color:var(--text-3)}
+.elo{font-size:12px;color:var(--text-2)}
+.elo b{color:var(--text);font-size:14px}
+.follow{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r-lg);padding:14px;margin-bottom:16px}
+.follow label{display:block;font-size:11.5px;font-weight:650;color:var(--text-3);margin:0 0 6px 2px}
+.follow .select{width:100%}
+.follow .btn{align-self:end}
+
+/* ======================================================================
+   Match sheet (slide-over)
+   ====================================================================== */
+.scrim{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.5);opacity:0;transition:opacity .2s var(--ease)}
+.scrim.open{opacity:1}
+.sheet{position:fixed;top:0;right:0;bottom:0;z-index:50;width:min(520px,100vw);background:var(--surface);
+  border-left:1px solid var(--line);box-shadow:var(--shadow);overflow-y:auto;
+  transform:translateX(100%);transition:transform .25s var(--ease)}
+.sheet.open{transform:none}
+.sheet-top{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;
+  padding:14px 16px;background:var(--surface);border-bottom:1px solid var(--line)}
+.sheet-top .ctx{font-size:12.5px;color:var(--text-2);display:flex;align-items:center;gap:8px}
+.sheet-top .icon-btn{margin-left:auto}
+.sheet-body{padding:6px 20px 32px}
+.match-head{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;padding:22px 0 18px}
+.match-head .side{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;
+  font-weight:680;font-size:15px}
+.match-head .mid{text-align:center}
+.match-head .mid .big{font-size:30px;font-weight:780;letter-spacing:-.02em}
+.match-head .mid .small{font-size:12px;color:var(--text-3);font-weight:600}
+.block{border-top:1px solid var(--line);padding:18px 0 4px}
+.block h3{margin:0 0 12px;font-size:13px;font-weight:700}
+.winbar{display:flex;height:12px;border-radius:6px;overflow:hidden;gap:2px}
+.winbar i{display:block;height:100%}
+.winbar .H{background:var(--home)} .winbar .D{background:var(--draw)} .winbar .A{background:var(--away)}
+.winlabels{display:grid;grid-template-columns:1fr auto 1fr;margin-top:10px;font-size:12.5px;color:var(--text-2)}
+.winlabels b{display:block;font-size:20px;color:var(--text);font-weight:760}
+.winlabels .c{text-align:center} .winlabels .r{text-align:right}
+.winlabels .picked b{color:var(--accent-text)}
+.verdict{display:flex;align-items:center;gap:10px;margin-top:14px;padding:10px 12px;border-radius:10px;
+  background:var(--surface-2);font-size:13px;color:var(--text-2)}
+.verdict b{color:var(--text)}
+.cmp{display:grid;grid-template-columns:48px 1fr auto 1fr 48px;align-items:center;gap:10px;
+  font-size:13px;margin-bottom:12px}
+.cmp .n{font-weight:700}
+.cmp .n.r{text-align:right}
+.cmp .label{font-size:12px;color:var(--text-3);text-align:center;min-width:120px}
+.cmp .half{height:8px;background:var(--surface-3);border-radius:4px;overflow:hidden;display:flex}
+.cmp .half.l{justify-content:flex-end}
+.cmp .half i{display:block;height:100%;border-radius:4px;background:var(--text-3)}
+.cmp .half i.lead{background:var(--accent)}
+.form-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:13px}
+.form-row .who{display:flex;align-items:center;gap:8px;font-weight:600}
+.h2h{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.h2h div{background:var(--surface-2);border-radius:10px;padding:10px;text-align:center}
+.h2h b{display:block;font-size:18px}
+.h2h span{font-size:11.5px;color:var(--text-3)}
+.fine{font-size:12px;color:var(--text-3);margin-top:18px}
+
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes shimmer{0%{background-position:100% 0}100%{background-position:-100% 0}}
+@media (prefers-reduced-motion: reduce){
+  *{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
+}
+
+/* ======================================================================
+   Narrow windows: bottom navigation, stacked fixture rows.
+   ====================================================================== */
+@media (max-width: 880px){
+  .fx{grid-template-columns:48px minmax(0,1fr) 60px minmax(0,1fr) 26px}
+  .fx .odds{grid-column:2 / span 3;grid-row:2}
+  .fx .mark{grid-column:5;grid-row:1}
+  .fx .why{grid-column:2 / span 3;grid-row:2;text-align:center}
+  .fx.no-meta{grid-template-columns:minmax(0,1fr) 60px minmax(0,1fr) 26px}
+  .fx.no-meta .odds{grid-column:1 / span 3}
+  .fx.no-meta .mark{grid-column:4}
+  .fx.no-meta .why{grid-column:1 / span 3}
+  .sk{grid-template-columns:48px 1fr 60px 1fr}
+  .sk i.box{display:none}
+  .stats{grid-template-columns:1fr 1fr}
+}
+@media (max-width: 720px){
+  .app{grid-template-columns:1fr}
+  .sidebar{position:fixed;inset:auto 0 0 0;height:auto;z-index:30;flex-direction:row;padding:6px 8px;
+    border-right:0;border-top:1px solid var(--line)}
+  .side-drag,.brand,.side-label,.side-leagues,.side-foot{display:none}
+  .nav{flex-direction:row;width:100%;justify-content:space-around}
+  .nav button{flex-direction:column;gap:2px;min-height:52px;font-size:11px;padding:4px 10px}
+  .nav .badge{display:none}
+  .content{padding:16px 16px 96px}
+  .topbar-inner{padding:18px 16px 12px}
+  .follow{grid-template-columns:1fr}
+  .fx .team{font-size:13.5px}
+  .fx .team .crest{display:none}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 16v-5M12 16V7M17 16v-8"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.3L3 16M3 12a9 9 0 0 1 15.5-6.3L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-ball" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m12 7 4 3-1.5 4.5h-5L8 10z"/><path d="M12 3v4M21 10l-5 0M3 10h5M7 20l2.5-5.5M17 20l-2.5-5.5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+</svg>
+
+<div class="app">
+  <aside class="sidebar" aria-label="Main">
+    <div class="side-drag drag"></div>
+    <div class="brand drag">
+      <span class="brand-mark"><svg class="i"><use href="#i-ball"/></svg></span>
+      <b>Match Predictor</b>
+    </div>
+    <nav class="nav" aria-label="Sections">
+      <button data-view="upcoming" aria-current="page"><svg class="i"><use href="#i-cal"/></svg>Matches</button>
+      <button data-view="predict"><svg class="i"><use href="#i-chart"/></svg>Predictions</button>
+      <button data-view="history"><svg class="i"><use href="#i-history"/></svg>History<span class="badge" id="navPending"></span></button>
+      <button data-view="teams"><svg class="i"><use href="#i-star"/></svg>My teams</button>
+    </nav>
+    <div class="side-label">Leagues</div>
+    <ul class="side-leagues" id="sideLeagues"></ul>
+    <div class="side-foot">
+      <button class="update" id="refreshBtn" title="Pull new results, grade predictions, retrain if needed">
+        <svg class="i"><use href="#i-refresh"/></svg><span>Update data</span></button>
+      <div class="side-meta" id="lastUpdated"></div>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <header class="topbar drag">
+      <div class="topbar-inner">
+        <div><h1 id="pageTitle">Matches</h1><p id="pageSub"></p></div>
+        <div class="tools" id="tools"></div>
+      </div>
+    </header>
+
+    <div class="content">
+      <div id="connection" aria-live="polite"></div>
+      <div id="globalMsg" aria-live="polite"></div>
+
+      <!-- MATCHES -->
+      <section id="view-upcoming" aria-labelledby="pageTitle">
+        <div id="upcomingList"></div>
+      </section>
+
+      <!-- PREDICTIONS -->
+      <section id="view-predict" hidden>
+        <div class="league-pills" id="leagueTabs" role="group" aria-label="League"></div>
+        <div class="round">
+          <div class="stepper">
+            <button id="mdPrev" aria-label="Previous matchday"><svg class="i"><use href="#i-left"/></svg></button>
+            <select id="matchday" aria-label="Matchday"></select>
+            <button id="mdNext" aria-label="Next matchday"><svg class="i"><use href="#i-right"/></svg></button>
+          </div>
+          <div class="summary" id="autoNote"></div>
+        </div>
+        <div id="scheduleMsg" aria-live="polite"></div>
+        <div id="matchList"></div>
+      </section>
+
+      <!-- HISTORY -->
+      <section id="view-history" hidden>
+        <div id="scorecard"></div>
+        <div id="driftBox"></div>
+        <div id="historyList"></div>
+      </section>
+
+      <!-- MY TEAMS -->
+      <section id="view-teams" hidden>
+        <div class="follow">
+          <div><label for="favLeague">League</label><select class="select" id="favLeague"></select></div>
+          <div><label for="favTeam">Club</label><select class="select" id="favTeam"></select></div>
+          <button class="btn primary" id="followBtn"><svg class="i"><use href="#i-plus"/></svg>Follow</button>
+        </div>
+        <div id="favList"></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden></aside>
+
+<script>
+/* ---------------------------------------------------------------------------
+   Helpers
+--------------------------------------------------------------------------- */
+const $ = id => document.getElementById(id);
+const api = async (path, opts) => {
+  const r = await fetch(path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || `${r.status} ${r.statusText}`);
+  return body;
+};
+const post = (path, data) => api(path, {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                         body: data === undefined ? undefined : JSON.stringify(data)});
+
+/* ---------------------------------------------------------------------------
+   Offline is not the same as broken.
+
+   A request can fail two ways, and the app should not treat them alike. If the
+   server answers with an error, something is wrong and the message is worth
+   showing. If the request never lands - the machine is offline, or the backend
+   is still starting - the last good answer is still worth showing, labelled with
+   its age, rather than a dead screen.
+--------------------------------------------------------------------------- */
+const OFFLINE = {stale: false, since: null};
+
+function cacheKey(key){ return `mp:cache:${key}`; }
+function readCache(key){
+  try {
+    const raw = localStorage.getItem(cacheKey(key));
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }          // private window, cleared storage, bad JSON
+}
+function writeCache(key, data){
+  try { localStorage.setItem(cacheKey(key), JSON.stringify({at: Date.now(), data})); }
+  catch { /* storage full or unavailable: caching is a nicety */ }
+}
+
+const unreachable = err => err instanceof TypeError || /Failed to fetch|NetworkError|Load failed/i.test(err.message || '');
+
+async function cachedFetch(key, path, opts){
+  try {
+    const data = await api(path, opts);
+    writeCache(key, data);
+    if (OFFLINE.stale){ OFFLINE.stale = false; renderConnection(); }
+    return data;
+  } catch (err){
+    const hit = readCache(key);
+    if (hit && (unreachable(err) || !navigator.onLine)){
+      OFFLINE.stale = true;
+      OFFLINE.since = hit.at;
+      renderConnection();
+      return hit.data;
+    }
+    throw err;                       // a real error from the server, or nothing cached
+  }
+}
+
+function ago(ts){
+  const mins = Math.round((Date.now() - ts) / 60000);
+  if (mins < 2) return 'a moment ago';
+  if (mins < 60) return `${mins} minutes ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? '' : 's'} ago`;
+  const days = Math.round(hrs / 24);
+  return days === 1 ? 'yesterday' : `${days} days ago`;
+}
+
+function renderConnection(){
+  const bar = $('connection');
+  if (!bar) return;
+  if (!OFFLINE.stale && navigator.onLine){ bar.innerHTML = ''; return; }
+  const when = OFFLINE.since ? ` Showing what was saved ${ago(OFFLINE.since)}.` : '';
+  bar.innerHTML = `<div class="alert info">${icon('alert')}<span>${
+    navigator.onLine ? "Can't reach the app's server right now." : 'No internet connection.'}${esc(when)}</span></div>`;
+}
+addEventListener('online', () => { renderConnection(); if (MODEL_OK) VIEWS[VIEW].load(); });
+addEventListener('offline', renderConnection);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+  ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const pct = v => `${Math.round(100 * v)}%`;
+const icon = (id, cls = '') => `<svg class="i ${cls}" aria-hidden="true"><use href="#i-${id}"/></svg>`;
+
+function localDate(iso){ const d = new Date(`${iso}T12:00:00`); return isNaN(d) ? null : d; }
+function dayLabel(iso, long = false){
+  const d = localDate(iso);
+  if (!d) return iso || '';
+  const today = new Date(); today.setHours(12, 0, 0, 0);
+  const diff = Math.round((d - today) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Tomorrow';
+  if (diff === -1) return 'Yesterday';
+  return d.toLocaleDateString(undefined, long
+    ? {weekday: 'long', day: 'numeric', month: 'long'}
+    : {weekday: 'short', day: 'numeric', month: 'short'});
+}
+
+/* ---------------------------------------------------------------------------
+   Club identity. No real crests (those are trademarks): initials on the
+   club's colours, or a colour derived from the name for everyone else.
+--------------------------------------------------------------------------- */
+const CLUBS = {
+  'Arsenal':['#EF0107','#fff','ARS'], 'Chelsea':['#034694','#fff','CHE'], 'Liverpool':['#C8102E','#fff','LIV'],
+  'Man City':['#6CABDD','#1C2C5B','MCI'], 'Man United':['#DA291C','#FBE122','MUN'], 'Tottenham':['#F4F4F4','#132257','TOT'],
+  'Newcastle':['#241F20','#fff','NEW'], 'Aston Villa':['#670E36','#95BFE5','AVL'], 'Everton':['#003399','#fff','EVE'],
+  'West Ham':['#7A263A','#1BB1E7','WHU'], 'Brighton':['#0057B8','#fff','BHA'], 'Wolves':['#FDB913','#231F20','WOL'],
+  'Crystal Palace':['#1B458F','#fff','CRY'], 'Fulham':['#F4F4F4','#111','FUL'], 'Brentford':['#E30613','#fff','BRE'],
+  "Nott'm Forest":['#DD0000','#fff','NFO'], 'Bournemouth':['#DA291C','#111','BOU'], 'Leeds':['#F4F4F4','#1D428A','LEE'],
+  'Sunderland':['#EB172B','#fff','SUN'], 'Burnley':['#6C1D45','#99D6EA','BUR'], 'Ipswich':['#3A64A3','#fff','IPS'],
+  'Hull':['#F5A12D','#111','HUL'], 'Leicester':['#003090','#FDBE11','LEI'], 'Southampton':['#D71920','#fff','SOU'],
+  'Real Madrid':['#F4F4F4','#C9A227','RMA'], 'Barcelona':['#A50044','#EDBB00','BAR'], 'Ath Madrid':['#CB3524','#fff','ATM'],
+  'Sevilla':['#F4F4F4','#D71920','SEV'], 'Betis':['#0BB363','#fff','BET'], 'Sociedad':['#0067B1','#fff','RSO'],
+  'Villarreal':['#FFE667','#005187','VIL'], 'Ath Bilbao':['#EE2523','#fff','ATH'], 'Valencia':['#F4F4F4','#111','VAL'],
+  'Bayern Munich':['#DC052D','#fff','FCB'], 'Dortmund':['#FDE100','#111','BVB'], 'Leverkusen':['#E32221','#111','B04'],
+  'RB Leipzig':['#F4F4F4','#DD0741','RBL'], "M'gladbach":['#111','#fff','BMG'], 'Ein Frankfurt':['#E1000F','#111','SGE'],
+  'Stuttgart':['#F4F4F4','#E32219','VFB'], 'Wolfsburg':['#65B32E','#fff','WOB'], 'Union Berlin':['#EB1923','#FFD200','FCU'],
+  'Juventus':['#111','#fff','JUV'], 'Inter':['#0068A8','#111','INT'], 'Milan':['#FB090B','#111','MIL'],
+  'Napoli':['#12A0D7','#fff','NAP'], 'Roma':['#8E1F2F','#F0BC42','ROM'], 'Lazio':['#87D8F7','#10224c','LAZ'],
+  'Atalanta':['#1E71B8','#111','ATA'], 'Fiorentina':['#482E92','#fff','FIO'],
+  'Paris SG':['#004170','#DA291C','PSG'], 'Marseille':['#2FAEE0','#fff','OM'], 'Lyon':['#F4F4F4','#DA291C','OL'],
+  'Monaco':['#E7222E','#fff','ASM'], 'Lille':['#E01E13','#1E2B53','LIL'], 'Lens':['#FFD700','#E30613','RCL'],
+};
+function initials(name){
+  const words = String(name).replace(/[^A-Za-z0-9' ]/g, ' ').split(/\s+/)
+    .filter(w => w && !/^(FC|AFC|CF|SC|AC|AS|SV)$/i.test(w));
+  if (words.length === 1) return words[0].replace(/'/g, '').slice(0, 3).toUpperCase();
+  return words.slice(0, 3).map(w => w[0]).join('').toUpperCase();
+}
+function crest(team, size = ''){
+  const known = CLUBS[team];
+  let c1, c2, code;
+  if (known){ [c1, c2, code] = known; }
+  else {
+    let h = 0; for (const ch of String(team)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    c1 = `hsl(${h % 360} 42% 34%)`; c2 = '#fff'; code = initials(team);
+  }
+  return `<span class="crest ${size}" style="--c1:${c1};--c2:${c2}" aria-hidden="true">${esc(code)}</span>`;
+}
+
+const LEAGUE_META = {
+  E0:  {code: 'ENG', name: 'Premier League', color: '#7c3aed'},
+  SP1: {code: 'ESP', name: 'La Liga',        color: '#ea580c'},
+  D1:  {code: 'GER', name: 'Bundesliga',     color: '#dc2626'},
+  I1:  {code: 'ITA', name: 'Serie A',        color: '#2563eb'},
+  F1:  {code: 'FRA', name: 'Ligue 1',        color: '#0d9488'},
+};
+const leagueMeta = code => LEAGUE_META[code] || {code: String(code).slice(0, 3), name: code, color: '#556'};
+const lgChip = code => { const m = leagueMeta(code);
+  return `<span class="lg-chip" style="--lg:${m.color}" title="${esc(m.name)}">${esc(m.code)}</span>`; };
+
+/* ---------------------------------------------------------------------------
+   Shared components
+--------------------------------------------------------------------------- */
+function oddsBoxes(probs, pick, correct){
+  if (!probs) return '<span></span>';
+  const cell = (k, label, v) => {
+    const cls = pick === k ? `ob pick${correct === false ? ' miss' : ''}` : 'ob';
+    return `<span class="${cls}"><b>${label}</b><span>${pct(v)}</span></span>`;
+  };
+  const names = {H: 'Home win', D: 'Draw', A: 'Away win'};
+  return `<span class="odds" role="img" aria-label="${esc(
+      `${names.H} ${pct(probs.home_win)}, ${names.D} ${pct(probs.draw)}, ${names.A} ${pct(probs.away_win)}`
+      + (pick ? `, predicted ${names[pick]}` : ''))}">
+    ${cell('H', '1', probs.home_win)}${cell('D', 'X', probs.draw)}${cell('A', '2', probs.away_win)}</span>`;
+}
+
+/* One fixture row, used by every list in the app. */
+function fixtureRow(m, {showLeague = false} = {}){
+  const played = m.status === 'played';
+  const blocked = m.status === 'unpredictable';
+  let homeCls = 'team home', awayCls = 'team away';
+  if (played && m.hg !== m.ag){
+    homeCls += m.hg > m.ag ? ' won' : ' lost';
+    awayCls += m.ag > m.hg ? ' won' : ' lost';
+  }
+  const center = played
+    ? `<span class="score"><span>${m.hg}</span><i>–</i><span>${m.ag}</span></span><span class="sub">FT</span>`
+    : `${m.time ? `<span class="time">${esc(m.time)}</span>` : '<span class="sub">VS</span>'}${m.status === 'awaiting' ? '<span class="sub">RESULT DUE</span>' : ''}`;
+
+  let mark = '<span></span>';
+  if (m.correct === true) mark = `<span class="mark ok" title="Called correctly">${icon('check')}<span class="sr-only">Correct</span></span>`;
+  else if (m.correct === false) mark = `<span class="mark bad" title="Called wrong">${icon('x')}<span class="sr-only">Wrong</span></span>`;
+  else if (m.status === 'awaiting') mark = `<span class="mark wait" title="Waiting for the result">${icon('clock')}</span>`;
+  else if (m.locked) mark = `<span class="mark lock" title="Saved to History; graded once played">${icon('lock')}<span class="sr-only">Locked in</span></span>`;
+
+  const meta = showLeague ? `<span class="meta">${lgChip(m.league)}</span>` : '';
+  const cls = showLeague ? 'fx' : 'fx no-meta';
+  const right = blocked
+    ? `<span class="why">No history for ${esc((m.unknown || []).join(', '))}</span>`
+    : `${oddsBoxes(m.probs, m.pick, m.correct)}${mark}`;
+  const inner = `${meta}
+    <span class="${homeCls}"><span class="name">${esc(m.home)}</span>${crest(m.home)}</span>
+    <span class="center">${center}</span>
+    <span class="${awayCls}">${crest(m.away)}<span class="name">${esc(m.away)}</span></span>
+    ${right}`;
+  if (blocked) return `<div class="${cls} muted">${inner}</div>`;
+  return `<button class="${cls}" data-key="${esc(m.key)}" aria-label="${esc(`${m.home} against ${m.away}, ${dayLabel(m.date, true)}. Open match details`)}">${inner}</button>`;
+}
+
+function groupByDay(matches){
+  const groups = new Map();
+  for (const m of matches){
+    if (!groups.has(m.date)) groups.set(m.date, []);
+    groups.get(m.date).push(m);
+  }
+  return [...groups.entries()];
+}
+function dayBlocks(matches, opts){
+  return groupByDay(matches).map(([date, list]) => `
+    <div class="day">
+      <div class="day-head"><h2>${esc(dayLabel(date, true))}</h2><span>${list.length} match${list.length === 1 ? '' : 'es'}</span></div>
+      <div class="card">${list.map(m => fixtureRow(m, opts)).join('')}</div>
+    </div>`).join('');
+}
+const skeleton = (n = 5) => `<div class="day"><div class="card">${
+  Array.from({length: n}, () => '<div class="sk"><i style="width:40px"></i><i></i><i style="width:44px;justify-self:center"></i><i></i><i class="box"></i></div>').join('')
+}</div></div>`;
+const emptyState = (glyph, title, body, action = '') => `
+  <div class="card"><div class="empty"><span class="glyph">${icon(glyph)}</span>
+    <h3>${esc(title)}</h3><p>${body}</p>${action}</div></div>`;
+const errorBox = msg => `<div class="alert" role="alert">${icon('alert')}<span>${esc(msg)}</span></div>`;
+
+/* ---------------------------------------------------------------------------
+   Navigation
+--------------------------------------------------------------------------- */
+const VIEWS = {
+  upcoming: {title: 'Matches',     load: () => loadUpcoming()},
+  predict:  {title: 'Predictions', load: () => { loadSchedule(); loadCounts(); }},
+  history:  {title: 'History',     load: () => loadHistory()},
+  teams:    {title: 'My teams',    load: () => loadTeams()},
+};
+let VIEW = 'upcoming', LEAGUES = [], TEAMS = {}, MODEL_OK = true;
+const ROWS = new Map();   // data-key -> normalised match, for the match sheet
+
+function show(view){
+  if (!VIEWS[view]) view = 'upcoming';
+  VIEW = view;
+  document.querySelectorAll('.nav button').forEach(b => {
+    if (b.dataset.view === view) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
+  Object.keys(VIEWS).forEach(v => { $('view-' + v).hidden = v !== view; });
+  $('pageTitle').textContent = VIEWS[view].title;
+  renderTools();
+  try { history.replaceState(null, '', '#' + view); } catch {}
+  document.querySelectorAll('.side-leagues button').forEach(b =>
+    b.classList.toggle('active', view === 'predict' && b.dataset.league === LEAGUE));
+  if (MODEL_OK) VIEWS[view].load();
+  $('main').scrollTo?.(0, 0); window.scrollTo(0, 0);
+}
+document.querySelectorAll('.nav button').forEach(b => b.onclick = () => show(b.dataset.view));
+
+function renderTools(){
+  const t = $('tools');
+  if (VIEW === 'upcoming'){
+    t.innerHTML = `
+      <div class="seg" role="group" aria-label="Which matches">
+        <button data-scope="mine" aria-pressed="${UP.scope === 'mine'}">My teams</button>
+        <button data-scope="all" aria-pressed="${UP.scope === 'all'}">All leagues</button>
+      </div>
+      <select class="select" id="horizon" aria-label="Time window">
+        ${[7, 14, 30, 90].map(d => `<option value="${d}"${UP.days === d ? ' selected' : ''}>Next ${d} days</option>`).join('')}
+      </select>`;
+    t.querySelectorAll('[data-scope]').forEach(b => b.onclick = () => { UP.scope = b.dataset.scope; renderTools(); loadUpcoming(); });
+    $('horizon').onchange = e => { UP.days = +e.target.value; loadUpcoming(); };
+  } else if (VIEW === 'history'){
+    t.innerHTML = `
+      <div class="seg" role="group" aria-label="Filter">
+        ${['all', 'graded', 'pending'].map(f => `<button data-f="${f}" aria-pressed="${HIST.filter === f}">${f[0].toUpperCase() + f.slice(1)}</button>`).join('')}
+      </div>
+      <button class="btn" id="settleBtn">${icon('check')}Check results</button>`;
+    t.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { HIST.filter = b.dataset.f; renderTools(); renderHistoryList(); });
+    $('settleBtn').onclick = settleNow;
+  } else {
+    t.innerHTML = '';
+  }
+  $('pageSub').textContent = subtitle();
+}
+function subtitle(){
+  if (VIEW === 'upcoming') return UP.scope === 'mine' ? `Your teams · next ${UP.days} days` : `All five leagues · next ${UP.days} days`;
+  if (VIEW === 'predict') return 'Every match forecast automatically · choose a league';
+  if (VIEW === 'history') return 'How the forecasts did once the results came in';
+  return 'Clubs you follow appear first under Matches';
+}
+
+/* ---------------------------------------------------------------------------
+   Matches (upcoming)
+--------------------------------------------------------------------------- */
+const UP = {scope: 'mine', days: 14};
+
+async function loadUpcoming(){
+  $('upcomingList').innerHTML = skeleton(5);
+  try {
+    // Read-only: locking forecasts in is the server's job, limited to the next
+    // seven days. Saving here let a 90-day window drop far-off matches into History.
+    const d = await cachedFetch(`upcoming:${UP.scope}:${UP.days}`,
+      `/upcoming?days=${UP.days}&following_only=${UP.scope === 'mine'}&save=false`);
+    const rows = d.fixtures.filter(f => !f.error).map(f => normalise({
+      league: f.league, date: f.date, time: f.time, home: f.home_team, away: f.away_team,
+      status: 'upcoming', probs: f.probabilities, pick: f.prediction}));
+    if (!rows.length){
+      $('upcomingList').innerHTML = d.note === 'not following any teams yet'
+        ? emptyState('star', 'Follow your clubs', 'Pick the teams you care about and their next fixtures will show up here, already forecast.',
+            '<button class="btn primary" data-go="teams">' + icon('plus') + 'Follow a club</button>')
+        : emptyState('cal', 'No fixtures in this window', 'Nothing is scheduled for your selection. Try a longer window or all leagues.');
+      $('upcomingList').querySelector('[data-go]')?.addEventListener('click', () => show('teams'));
+      return;
+    }
+    $('upcomingList').innerHTML = dayBlocks(rows, {showLeague: true});
+    bindRows($('upcomingList'));
+  } catch (e){ $('upcomingList').innerHTML = errorBox(e.message); }
+}
+
+function normalise(m){
+  const key = `${m.league}|${m.home}|${m.away}|${m.date}`;
+  const row = {...m, key};
+  ROWS.set(key, row);
+  return row;
+}
+function bindRows(root){
+  root.querySelectorAll('button.fx').forEach(b => b.onclick = () => openMatch(ROWS.get(b.dataset.key), b));
+}
+
+/* ---------------------------------------------------------------------------
+   Predictions (season by matchday, forecast automatically by the server)
+--------------------------------------------------------------------------- */
+let LEAGUE = null, COUNTS = {};
+const SCHEDULES = {};
+const STALE_MS = 5 * 60 * 1000;
+
+function renderLeagueNav(){
+  if (!LEAGUE && LEAGUES.length) LEAGUE = LEAGUES[0].code;
+  $('leagueTabs').innerHTML = LEAGUES.map(l => {
+    const m = leagueMeta(l.code), c = COUNTS[l.code];
+    return `<button data-league="${esc(l.code)}" aria-pressed="${l.code === LEAGUE}">${lgChip(l.code)}${esc(m.name)}${
+      c && !c.error ? `<span class="count">${c.forecast}</span>` : ''}</button>`;
+  }).join('');
+  $('leagueTabs').querySelectorAll('button').forEach(b => b.onclick = () => pickLeague(b.dataset.league));
+
+  $('sideLeagues').innerHTML = LEAGUES.map(l => {
+    const m = leagueMeta(l.code), c = COUNTS[l.code];
+    return `<li><button data-league="${esc(l.code)}" class="${VIEW === 'predict' && l.code === LEAGUE ? 'active' : ''}">${lgChip(l.code)}${esc(m.name)}${
+      c && !c.error ? `<span class="count">${c.forecast}</span>` : ''}</button></li>`;
+  }).join('');
+  $('sideLeagues').querySelectorAll('button').forEach(b => b.onclick = () => { LEAGUE = b.dataset.league; show('predict'); renderLeagueNav(); });
+}
+function pickLeague(code){ LEAGUE = code; renderLeagueNav(); loadSchedule(); }
+
+async function loadSchedule(force){
+  if (!LEAGUE) renderLeagueNav();
+  if (!LEAGUE) return;
+  const lg = LEAGUE, entry = SCHEDULES[lg];
+  if (entry && Date.now() - entry.at < STALE_MS && !force){ fillRounds(entry.data, false); renderSchedule(); return; }
+  $('matchList').innerHTML = skeleton(8);
+  $('autoNote').innerHTML = '';
+  try {
+    const data = await cachedFetch(`schedule:${lg}`, `/schedule?league=${encodeURIComponent(lg)}`);
+    SCHEDULES[lg] = {data, at: Date.now()};
+    COUNTS[lg] = data.counts;
+    if (lg !== LEAGUE) return;
+    renderLeagueNav();
+    fillRounds(data, true);
+    renderSchedule();
+  } catch (e){ $('matchList').innerHTML = errorBox(e.message); }
+}
+function fillRounds(data, jump){
+  const sel = $('matchday');
+  const keep = !jump && sel.dataset.league === data.league ? sel.value : data.current_round;
+  sel.innerHTML = data.rounds.map(r => `<option value="${esc(r.round)}"${r.round === keep ? ' selected' : ''}>${esc(r.round)}</option>`).join('');
+  sel.dataset.league = data.league;
+}
+function currentDay(){
+  const e = SCHEDULES[LEAGUE];
+  return e && (e.data.matchdays.find(g => g.round === $('matchday').value) || e.data.matchdays[0]);
+}
+function renderSchedule(){
+  const e = SCHEDULES[LEAGUE];
+  if (!e) return;
+  const day = currentDay(), c = e.data.counts;
+  const idx = $('matchday').selectedIndex, n = $('matchday').options.length;
+  $('mdPrev').disabled = idx <= 0;
+  $('mdNext').disabled = idx >= n - 1;
+  $('autoNote').innerHTML = `<span class="pill"><b>${c.forecast}</b> forecast</span>
+    <span class="pill" title="Saved to History and graded once played">${icon('lock')}<b>${c.locked_in}</b> locked in</span>`;
+  if (!day){
+    $('matchList').innerHTML = e.data.feed_error
+      ? emptyState('alert', 'Cannot reach the fixture source',
+          'The app is running, but the schedule could not be downloaded. It will retry; already-saved predictions are unaffected.')
+      : emptyState('cal', 'No fixtures yet', 'This league has not published its schedule.');
+    return;
+  }
+  if (e.data.feed_error && !$('scheduleMsg').innerHTML){
+    $('scheduleMsg').innerHTML = `<div class="alert info">${icon('alert')}<span>Showing the last schedule that downloaded — the fixture source is unreachable right now.</span></div>`;
+  }
+  const rows = day.matches.map(m => {
+    const p = m.prediction;
+    return normalise({league: m.league, date: m.date, time: m.time, home: m.home_team, away: m.away_team,
+      status: m.status, hg: m.home_goals, ag: m.away_goals, unknown: m.unknown_teams,
+      probs: p && p.probabilities, pick: p && p.prediction, correct: p ? p.correct : null,
+      locked: !!(p && p.locked_in)});
+  });
+  $('matchList').innerHTML = dayBlocks(rows, {showLeague: false});
+  bindRows($('matchList'));
+}
+$('matchday').onchange = renderSchedule;
+const stepDay = d => { const s = $('matchday'), i = s.selectedIndex + d;
+  if (i >= 0 && i < s.options.length){ s.selectedIndex = i; renderSchedule(); } };
+$('mdPrev').onclick = () => stepDay(-1);
+$('mdNext').onclick = () => stepDay(1);
+
+async function loadCounts(){
+  try { const r = await api('/forecast/summary'); COUNTS = {...r.leagues, ...COUNTS}; renderLeagueNav(); } catch {}
+}
+
+/* ---------------------------------------------------------------------------
+   History
+--------------------------------------------------------------------------- */
+const HIST = {filter: 'all', rows: []};
+
+/* Goals and exact score come from the same score distribution as the result, and
+   are graded separately: the outcome probabilities can look fine while the goal
+   model is off. */
+function marketsCard(m){
+  if (!m || !Object.keys(m).length) return '';
+  const cell = (key, title, sub) => {
+    const d = m[key];
+    if (!d) return '';
+    return `<div><b>${pct(d.accuracy)}</b><span>${esc(title)}</span>
+      <div style="font-size:11.5px;color:var(--text-3);margin-top:4px">${esc(sub(d))}</div></div>`;
+  };
+  return `<div class="calls"><h3>Goals and scorelines</h3>
+    <div class="goal-markets">
+      ${cell('over_2_5', 'Over / under 2.5 goals',
+             d => `said ${pct(d.predicted_rate)} over, ${pct(d.actual_rate)} happened · ${d.graded} graded`)}
+      ${cell('both_score', 'Both teams to score',
+             d => `said ${pct(d.predicted_rate)}, ${pct(d.actual_rate)} happened · ${d.graded} graded`)}
+      ${m.exact_score ? `<div><b>${m.exact_score.correct}/${m.exact_score.graded}</b>
+        <span>Exact score</span><div style="font-size:11.5px;color:var(--text-3);margin-top:4px">
+        the single most likely scoreline, called exactly</div></div>` : ''}
+    </div></div>`;
+}
+
+async function loadHistory(){
+  $('scorecard').innerHTML = '';
+  $('historyList').innerHTML = skeleton(6);
+  try {
+    const [s, h] = await Promise.all([cachedFetch('scorecard', '/scorecard'),
+                                      cachedFetch('predictions', '/predictions?limit=300')]);
+    $('navPending').textContent = s.pending ? s.pending : '';
+    if (s.settled){
+      const calls = ['H', 'D', 'A'].map(k => ({k, ...s.by_outcome[k]}));
+      const max = Math.max(1, ...calls.flatMap(c => [c.predicted, c.actual]));
+      const label = {H: 'Home wins', D: 'Draws', A: 'Away wins'};
+      $('scorecard').innerHTML = `
+        <div class="stats">
+          <div class="tile ring"><div class="ring-chart" style="--p:${(100 * s.accuracy).toFixed(1)}" role="img"
+               aria-label="Accuracy ${pct(s.accuracy)}"><span>${pct(s.accuracy)}</span></div>
+            <div><div class="k">Accuracy</div><div class="s"><b>${s.correct}</b> of ${s.settled} called right</div></div></div>
+          <div class="tile"><div class="k">Graded</div><div class="v">${s.settled}</div><div class="s">since ${esc(dayLabel(s.first_prediction))}</div></div>
+          <div class="tile"><div class="k">Awaiting result</div><div class="v">${s.pending}</div><div class="s">locked in, not yet played</div></div>
+          <div class="tile"><div class="k">RPS</div><div class="v">${s.rps.toFixed(3)}</div><div class="s">lower is better · 0.19 ≈ bookmakers</div></div>
+        </div>
+        ${s.baselines ? `<div class="calls"><h3>Against the alternatives</h3>
+          <table class="vs-table"><thead><tr><th>On these same ${s.settled} matches</th>
+            <th>Correct</th><th>RPS</th></tr></thead><tbody>
+            <tr class="me"><td>This model</td><td>${pct(s.accuracy)}</td><td>${s.rps.toFixed(3)}</td></tr>
+            <tr><td>Guessing the base rates</td><td>${pct(s.baselines.base_rates.accuracy)}</td>
+              <td>${s.baselines.base_rates.rps.toFixed(3)}</td></tr>
+            <tr><td>Always the home team</td><td>${pct(s.baselines.always_home.accuracy)}</td>
+              <td>${s.baselines.always_home.rps.toFixed(3)}</td></tr>
+          </tbody></table></div>` : ''}
+        ${marketsCard(s.markets)}
+        <div class="calls"><h3>Calls vs what happened</h3>
+          <div class="calls-legend"><span></span><span>Predicted</span><span>Happened</span></div>
+          ${calls.map(c => `<div class="calls-row"><span>${label[c.k]}</span>
+            <div class="bar" title="${c.predicted} predicted"><i style="width:${100 * c.predicted / max}%;--c:var(--accent)"></i></div>
+            <div class="bar" title="${c.actual} happened"><i style="width:${100 * c.actual / max}%;--c:var(--away)"></i></div></div>`).join('')}
+        </div>`;
+    }
+    HIST.rows = h.predictions;
+    renderHistoryList();
+    loadDrift();
+  } catch (e){ $('historyList').innerHTML = errorBox(e.message); }
+}
+function renderHistoryList(){
+  let rows = HIST.rows;
+  if (HIST.filter === 'graded') rows = rows.filter(r => r.result);
+  if (HIST.filter === 'pending') rows = rows.filter(r => !r.result);
+  if (!rows.length){
+    $('historyList').innerHTML = emptyState('history', HIST.rows.length ? 'Nothing matches this filter' : 'No predictions yet',
+      HIST.rows.length ? 'Try another filter.' : 'Forecasts for matches in the next seven days are saved here automatically, then graded once played.');
+    return;
+  }
+  const norm = rows.map(r => normalise({league: r.league, date: r.match_date, time: '', home: r.home_team, away: r.away_team,
+    status: r.result ? 'played' : 'upcoming', hg: r.home_goals, ag: r.away_goals,
+    probs: {home_win: r.p_home, draw: r.p_draw, away_win: r.p_away}, pick: r.predicted,
+    correct: r.result ? r.predicted === r.result : null, locked: !r.result}));
+  $('historyList').innerHTML = dayBlocks(norm, {showLeague: true});
+  bindRows($('historyList'));
+}
+async function settleNow(){
+  const b = $('settleBtn'); b.disabled = true;
+  try {
+    const r = await post('/settle');
+    toast(r.settled ? `Graded ${r.settled} prediction${r.settled === 1 ? '' : 's'}` : 'No new results yet', 'info');
+    await loadHistory();
+  } catch (e){ toast(e.message); }
+  finally { b.disabled = false; }
+}
+
+
+/* ---------------------------------------------------------------------------
+   Drift charts. Two jobs, two forms: a part-to-whole share over time (stacked
+   bars) and one measure over time (a line). Hover gives exact values, and a
+   table view carries the same numbers for screen readers and for light mode,
+   where these hues sit below 3:1 against white.
+--------------------------------------------------------------------------- */
+const VIZ = {w: 780, h: 190, l: 34, r: 12, t: 12, b: 22};
+
+function vizTip(){
+  let el = document.getElementById('vizTip');
+  if (!el){
+    el = document.createElement('div');
+    el.id = 'vizTip'; el.className = 'viz-tip';
+    document.body.appendChild(el);
+  }
+  return el;
+}
+function bindHover(root, rows, label){
+  const tip = vizTip();
+  root.querySelectorAll('[data-i]').forEach(hit => {
+    const row = rows[+hit.dataset.i];
+    const show = e => {
+      tip.innerHTML = label(row);
+      tip.classList.add('on');
+      const pad = 14;
+      tip.style.left = Math.min(innerWidth - tip.offsetWidth - 8, e.clientX + pad) + 'px';
+      tip.style.top = Math.max(8, e.clientY - tip.offsetHeight - pad) + 'px';
+    };
+    hit.addEventListener('mousemove', show);
+    hit.addEventListener('focus', e => show({clientX: hit.getBoundingClientRect().left,
+                                             clientY: hit.getBoundingClientRect().top}));
+    const hide = () => tip.classList.remove('on');
+    hit.addEventListener('mouseleave', hide);
+    hit.addEventListener('blur', hide);
+  });
+}
+
+function outcomeMixChart(rows){
+  const {w, h, l, r, t, b} = VIZ;
+  const plotW = w - l - r, plotH = h - t - b;
+  const band = plotW / rows.length, bw = Math.min(26, band - 4);
+  const bars = rows.map((d, i) => {
+    const x = l + i * band + (band - bw) / 2;
+    const parts = [["home", d.home_win_rate, "--c-home"], ["draw", d.draw_rate, "--c-draw"],
+                   ["away", d.away_win_rate, "--c-away"]];
+    let y = t;
+    const segs = parts.map(([, share, token]) => {
+      const seg = `<rect class="seg" x="${x}" y="${y.toFixed(1)}" width="${bw}"
+        height="${(share * plotH).toFixed(1)}" fill="var(${token})"/>`;
+      y += share * plotH;
+      return seg;
+    }).join('');
+    return segs + `<rect class="hit" data-i="${i}" tabindex="0" role="img"
+      aria-label="${esc(`${d.season}: home wins ${pct(d.home_win_rate)}, draws ${pct(d.draw_rate)}, away wins ${pct(d.away_win_rate)}`)}"
+      x="${x - 2}" y="${t}" width="${bw + 4}" height="${plotH}"/>`;
+  }).join('');
+
+  // Direct labels on the first and last season only: the story is the change.
+  const first = rows[0], last = rows[rows.length - 1];
+  const labelAt = (i, d) => `<text class="direct" x="${l + i * band + band / 2}" y="${t + d.home_win_rate * plotH / 2 + 4}"
+      text-anchor="middle" fill="#fff">${pct(d.home_win_rate)}</text>`;
+  const ticks = rows.map((d, i) => (i === 0 || i === rows.length - 1 || d.start % 5 === 0)
+    ? `<text class="axis" x="${l + i * band + band / 2}" y="${h - 6}" text-anchor="middle">${d.start}</text>` : '').join('');
+
+  return `<svg viewBox="0 0 ${w} ${h}" role="img"
+      aria-label="Share of home wins, draws and away wins by season, ${rows[0].season} to ${last.season}">
+      <g class="grid">${[0, 0.25, 0.5, 0.75, 1].map(f =>
+        `<line x1="${l}" x2="${w - r}" y1="${t + f * plotH}" y2="${t + f * plotH}"/>`).join('')}</g>
+      ${[0, 50, 100].map(v => `<text class="axis" x="${l - 6}" y="${t + (1 - v / 100) * plotH + 3}" text-anchor="end">${v}%</text>`).join('')}
+      ${bars}${labelAt(0, first)}${labelAt(rows.length - 1, last)}${ticks}
+    </svg>`;
+}
+
+function rpsChart(rows, baseline){
+  const {w, h, l, r, t, b} = VIZ;
+  const plotW = w - l - r, plotH = h - t - b;
+  const values = rows.map(d => d.rps).concat(baseline ? [baseline] : []);
+  const lo = Math.min(...values) - 0.004, hi = Math.max(...values) + 0.004;
+  const x = i => l + (rows.length === 1 ? plotW / 2 : (i / (rows.length - 1)) * plotW);
+  const y = v => t + (1 - (v - lo) / (hi - lo)) * plotH;
+
+  const path = rows.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(d.rps).toFixed(1)}`).join(' ');
+  const dots = rows.map((d, i) => `<circle class="mark-dot" cx="${x(i).toFixed(1)}" cy="${y(d.rps).toFixed(1)}" r="3"/>`).join('');
+  const hits = rows.map((d, i) => `<rect class="hit" data-i="${i}" tabindex="0" role="img"
+      aria-label="${esc(`${d.season}: RPS ${d.rps.toFixed(3)}, accuracy ${pct(d.accuracy)}`)}"
+      x="${(x(i) - plotW / rows.length / 2).toFixed(1)}" y="${t}" width="${(plotW / rows.length).toFixed(1)}" height="${plotH}"/>`).join('');
+  const last = rows[rows.length - 1];
+
+  return `<svg viewBox="0 0 ${w} ${h}" role="img"
+      aria-label="Ranked probability score by season, lower is better, ${rows[0].season} to ${last.season}">
+      <g class="grid">${[0, 0.5, 1].map(f => `<line x1="${l}" x2="${w - r}" y1="${t + f * plotH}" y2="${t + f * plotH}"/>`).join('')}</g>
+      <text class="axis" x="${l - 6}" y="${y(hi) + 10}" text-anchor="end">${hi.toFixed(2)}</text>
+      <text class="axis" x="${l - 6}" y="${y(lo)}" text-anchor="end">${lo.toFixed(2)}</text>
+      ${baseline ? `<line class="baseline" x1="${l}" x2="${w - r}" y1="${y(baseline)}" y2="${y(baseline)}"/>
+        <text class="axis" x="${l + 4}" y="${y(baseline) - 5}">held-out ${baseline.toFixed(3)}</text>` : ''}
+      <path class="mark-line" d="${path}"/>${dots}${hits}
+      <text class="direct" x="${x(rows.length - 1)}" y="${y(last.rps) - 9}" text-anchor="end">${last.rps.toFixed(3)}</text>
+      ${rows.map((d, i) => (i === 0 || i === rows.length - 1 || d.start % 5 === 0)
+        ? `<text class="axis" x="${x(i)}" y="${h - 6}" text-anchor="middle">${d.start}</text>` : '').join('')}
+    </svg>`;
+}
+
+function driftTable(rows){
+  return `<details class="viz-table-wrap"><summary style="cursor:pointer;color:var(--text-3);font-size:12px">Show the numbers</summary>
+    <div class="viz-table"><table class="vs-table"><thead><tr><th>Season</th><th>Home</th><th>Draw</th>
+      <th>Away</th><th>Goals</th><th>RPS</th></tr></thead><tbody>
+      ${rows.map(d => `<tr><td>${esc(d.season)}</td><td>${pct(d.home_win_rate)}</td><td>${pct(d.draw_rate)}</td>
+        <td>${pct(d.away_win_rate)}</td><td>${d.goals_per_game.toFixed(2)}</td><td>${d.rps.toFixed(3)}</td></tr>`).join('')}
+    </tbody></table></div></details>`;
+}
+
+async function loadDrift(){
+  const box = $('driftBox');
+  if (!box || box.dataset.loaded) return;
+  box.innerHTML = `<div class="calls"><h3>Loading the season history…</h3></div>`;
+  try {
+    const d = await cachedFetch('drift', '/drift');
+    const rows = d.seasons;
+    if (!rows || rows.length < 3){ box.innerHTML = ''; return; }
+    // Compare eras, not endpoints: home wins fell to a low in the empty-stadium
+    // season and partly recovered, so first-versus-last understates the move.
+    const mean = xs => xs.reduce((a, b) => a + b, 0) / xs.length;
+    const early = mean(rows.slice(0, 5).map(d => d.home_win_rate));
+    const recent = mean(rows.slice(-5).map(d => d.home_win_rate));
+    const low = rows.reduce((a, b) => (b.home_win_rate < a.home_win_rate ? b : a));
+    box.dataset.loaded = '1';
+    box.innerHTML = `
+      <div class="calls"><h3>Home advantage over time</h3>
+        <div class="legend">
+          <span><i style="background:var(--c-home)"></i>Home win</span>
+          <span><i style="background:var(--c-draw)"></i>Draw</span>
+          <span><i style="background:var(--c-away)"></i>Away win</span>
+        </div>
+        <div class="viz viz-wrap" id="vizMix">${outcomeMixChart(rows)}</div>
+        <p class="viz-note">Home wins have gone from ${pct(early)} across ${esc(rows[0].season)}–${esc(rows[4].season)}
+          to ${pct(recent)} across the last five seasons, bottoming at ${pct(low.home_win_rate)} in ${esc(low.season)}.
+          Scoring rose from ${rows[0].goals_per_game.toFixed(2)} to ${rows[rows.length - 1].goals_per_game.toFixed(2)} goals a game.</p>
+        ${driftTable(rows)}
+      </div>
+      <div class="calls"><h3>How predictable each season was</h3>
+        <div class="viz viz-wrap" id="vizRps">${rpsChart(rows, d.holdout_rps)}</div>
+        <p class="viz-note">Ranked probability score per season, lower is better.
+          ${esc(d.note)}</p>
+      </div>`;
+    bindHover($('vizMix'), rows, d => `<b>${esc(d.season)}</b><br>Home ${pct(d.home_win_rate)} ·
+      Draw ${pct(d.draw_rate)} · Away ${pct(d.away_win_rate)}<br>${d.goals_per_game.toFixed(2)} goals a game`);
+    bindHover($('vizRps'), rows, d => `<b>${esc(d.season)}</b><br>RPS ${d.rps.toFixed(3)} ·
+      ${pct(d.accuracy)} correct<br>${d.matches} matches`);
+  } catch (e){
+    box.innerHTML = `<div class="calls"><h3>Season history</h3>${errorBox(e.message)}</div>`;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   My teams
+--------------------------------------------------------------------------- */
+async function teamsFor(lg){
+  if (!TEAMS[lg]) TEAMS[lg] = (await api(`/teams?league=${encodeURIComponent(lg)}`)).teams;
+  $('favTeam').innerHTML = TEAMS[lg].map(t => `<option>${esc(t)}</option>`).join('');
+}
+const formStrip = pts => {
+  const cells = (pts || []).map(p => p === 3 ? 'W' : p === 1 ? 'D' : 'L');
+  while (cells.length < 5) cells.unshift(null);
+  return `<span class="form" role="img" aria-label="Last five: ${cells.filter(Boolean).join(' ') || 'no games'}">${
+    cells.map(c => c ? `<i class="${c}">${c}</i>` : '<i class="none">–</i>').join('')}</span>`;
+};
+async function loadTeams(){
+  $('favList').innerHTML = '<div class="teams-grid">' + '<div class="tile" style="height:128px"></div>'.repeat(3) + '</div>';
+  try {
+    const d = await cachedFetch('favourites', '/favourites');
+    if (!d.favourites.length){
+      $('favList').innerHTML = emptyState('star', 'No clubs followed yet', 'Choose a league and a club above. Their fixtures will lead the Matches page.');
+      return;
+    }
+    const forms = await Promise.all(d.favourites.map(f =>
+      api(`/teams/${encodeURIComponent(f.league)}/${encodeURIComponent(f.team)}/form`).catch(() => null)));
+    $('favList').innerHTML = `<div class="teams-grid">${d.favourites.map((f, i) => {
+      const fm = forms[i];
+      return `<div class="team-card">${crest(f.team, 'md')}
+        <div><h3>${esc(f.team)}</h3><div class="sub">${esc(leagueMeta(f.league).name)}</div></div>
+        <button class="icon-btn" data-league="${esc(f.league)}" data-team="${esc(f.team)}" aria-label="Unfollow ${esc(f.team)}" title="Unfollow">${icon('x')}</button>
+        <div class="row2">${formStrip(fm && fm.last5_points)}
+          <span class="elo">Elo <b>${fm ? Math.round(fm.elo) : '–'}</b></span></div>
+      </div>`;
+    }).join('')}</div>`;
+    $('favList').querySelectorAll('[data-team]').forEach(b => b.onclick = async () => {
+      b.disabled = true;
+      try {
+        await api(`/favourites?league=${encodeURIComponent(b.dataset.league)}&team=${encodeURIComponent(b.dataset.team)}`, {method: 'DELETE'});
+        toast(`Unfollowed ${b.dataset.team}`, 'info');
+        loadTeams();
+      } catch (e){ toast(e.message); b.disabled = false; }
+    });
+  } catch (e){ $('favList').innerHTML = errorBox(e.message); }
+}
+$('followBtn').onclick = async () => {
+  const b = $('followBtn'); b.disabled = true;
+  try {
+    await post('/favourites', {league: $('favLeague').value, team: $('favTeam').value});
+    toast(`Following ${$('favTeam').value}`, 'info');
+    loadTeams();
+  } catch (e){ toast(e.message); }
+  finally { b.disabled = false; }
+};
+$('favLeague').onchange = () => teamsFor($('favLeague').value);
+
+/* ---------------------------------------------------------------------------
+   Match sheet: the reasoning behind a forecast. Read-only - nothing is saved.
+--------------------------------------------------------------------------- */
+let SHEET_RETURN = null;
+
+async function openMatch(m, trigger){
+  if (!m) return;
+  SHEET_RETURN = trigger || null;
+  const sheet = $('sheet'), scrim = $('scrim');
+  sheet.innerHTML = `
+    <div class="sheet-top">
+      <span class="ctx">${lgChip(m.league)}<span id="sheetTitle">${esc(leagueMeta(m.league).name)} · ${esc(dayLabel(m.date, true))}${m.time ? ' · ' + esc(m.time) : ''}</span></span>
+      <button class="icon-btn" id="sheetClose" aria-label="Close match details">${icon('x')}</button>
+    </div>
+    <div class="sheet-body">
+      <div class="match-head">
+        <div class="side">${crest(m.home, 'lg')}<span>${esc(m.home)}</span></div>
+        <div class="mid">${m.status === 'played'
+          ? `<div class="big">${m.hg} – ${m.ag}</div><div class="small">FULL TIME</div>`
+          : `<div class="big">${esc(m.time || 'vs')}</div><div class="small">${m.status === 'awaiting' ? 'RESULT DUE' : 'KICK-OFF'}</div>`}</div>
+        <div class="side">${crest(m.away, 'lg')}<span>${esc(m.away)}</span></div>
+      </div>
+      <div id="sheetDetail">${skeleton(3)}</div>
+    </div>`;
+  scrim.hidden = false; sheet.hidden = false;
+  requestAnimationFrame(() => { scrim.classList.add('open'); sheet.classList.add('open'); });
+  $('sheetClose').onclick = closeSheet;
+  $('sheetClose').focus();
+
+  try {
+    const [r, fh, fa] = await Promise.all([
+      post('/predict', {league: m.league, home_team: m.home, away_team: m.away, match_date: m.date}),
+      api(`/teams/${encodeURIComponent(m.league)}/${encodeURIComponent(m.home)}/form`).catch(() => null),
+      api(`/teams/${encodeURIComponent(m.league)}/${encodeURIComponent(m.away)}/form`).catch(() => null),
+    ]);
+    // A graded or locked-in call is shown as it was made; otherwise the live forecast.
+    const probs = m.probs || r.probabilities;
+    const pick = m.pick || r.prediction;
+    const c = r.context;
+    const names = {H: m.home, D: 'Draw', A: m.away};
+    const verdict = m.correct === true ? `${icon('check')}<span>Called <b>${esc(names[pick] === 'Draw' ? 'a draw' : names[pick] + ' to win')}</b> — correct</span>`
+      : m.correct === false ? `${icon('x')}<span>Called <b>${esc(names[pick] === 'Draw' ? 'a draw' : names[pick] + ' to win')}</b> — it went the other way</span>`
+      : m.locked ? `${icon('lock')}<span>Locked in to History; graded once the result is in.</span>` : '';
+
+    const side = obj => { const v = Object.values(obj || {}); return [v[0], v[1]]; };
+    // `base` is subtracted before sizing the bars: Elo ratings all sit near 1500,
+    // so raw shares would draw a 330-point gap as a near-even 55/45 split.
+    const cmpRow = (label, a, b, {lowerBetter = false, digits = 1, base = 0} = {}) => {
+      if (a == null || b == null) return '';
+      const ma = Math.max(0, a - base), mb = Math.max(0, b - base);
+      const total = ma + mb || 1;
+      const leadA = lowerBetter ? a < b : a > b, leadB = lowerBetter ? b < a : b > a;
+      return `<div class="cmp"><span class="n">${(+a).toFixed(digits)}</span>
+        <span class="half l"><i class="${leadA ? 'lead' : ''}" style="width:${100 * ma / total}%"></i></span>
+        <span class="label">${esc(label)}</span>
+        <span class="half"><i class="${leadB ? 'lead' : ''}" style="width:${100 * mb / total}%"></i></span>
+        <span class="n r">${(+b).toFixed(digits)}</span></div>`;
+    };
+    const [eloH, eloA] = [c.elo[m.home], c.elo[m.away]];
+    const [ppgH, ppgA] = side(c.form_ppg_last5);
+    const [gfH, gfA] = side(c.goals_for_last5);
+    const [gaH, gaA] = side(c.goals_against_last5);
+    const [venH, venA] = side(c.venue_ppg_last5);
+    const h2h = Object.values(c.head_to_head || {});
+
+    $('sheetDetail').innerHTML = `
+      <div class="block"><h3>Who will win?</h3>
+        <div class="winbar" role="img" aria-label="${esc(`${m.home} ${pct(probs.home_win)}, draw ${pct(probs.draw)}, ${m.away} ${pct(probs.away_win)}`)}">
+          <i class="H" style="flex:${probs.home_win}"></i><i class="D" style="flex:${probs.draw}"></i><i class="A" style="flex:${probs.away_win}"></i></div>
+        <div class="winlabels">
+          <div class="${pick === 'H' ? 'picked' : ''}"><b>${pct(probs.home_win)}</b>${esc(m.home)}</div>
+          <div class="c ${pick === 'D' ? 'picked' : ''}"><b>${pct(probs.draw)}</b>Draw</div>
+          <div class="r ${pick === 'A' ? 'picked' : ''}"><b>${pct(probs.away_win)}</b>${esc(m.away)}</div>
+        </div>
+        ${verdict ? `<div class="verdict">${verdict}</div>` : ''}
+      </div>
+      ${r.markets ? `<div class="block"><h3>Likely scores</h3>
+        <div class="scores">${r.markets.scorelines.map(sc => `
+          <div class="score-row"><b>${sc.home}–${sc.away}</b>
+            <div class="bar"><i style="width:${Math.min(100, 100 * sc.probability / r.markets.scorelines[0].probability)}%"></i></div>
+            <span class="val">${pct(sc.probability)}</span></div>`).join('')}</div>
+        <div class="goal-markets">
+          <div><b>${pct(r.markets.over_2_5)}</b><span>Over 2.5 goals</span></div>
+          <div><b>${pct(r.markets.both_score)}</b><span>Both teams to score</span></div>
+        </div>
+        <p class="fine" style="margin-top:12px">Expected goals ${r.markets.expected_goals.home} – ${r.markets.expected_goals.away}.
+          Scorelines come from the same goal model, scaled to agree with the result probabilities above.</p>
+      </div>` : ''}
+      <div class="block"><h3>Form · last five</h3>
+        <div class="form-row"><span class="who">${crest(m.home)}${esc(m.home)}</span>${formStrip(fh && fh.last5_points)}</div>
+        <div class="form-row"><span class="who">${crest(m.away)}${esc(m.away)}</span>${formStrip(fa && fa.last5_points)}</div>
+      </div>
+      <div class="block"><h3>Team comparison</h3>
+        ${cmpRow('Elo rating', eloH, eloA, {digits: 0, base: 1300})}
+        ${cmpRow('Points per game', ppgH, ppgA, {digits: 2})}
+        ${cmpRow('Goals scored per game', gfH, gfA)}
+        ${cmpRow('Goals conceded per game', gaH, gaA, {lowerBetter: true})}
+        ${cmpRow('Home / away form (ppg)', venH, venA, {digits: 2})}
+      </div>
+      ${h2h.length && h2h[0] ? `<div class="block"><h3>Head to head</h3><div class="h2h">
+        <div><b>${esc(h2h[0])}</b><span>recent meetings</span></div>
+        <div><b>${h2h[1] == null ? '–' : (+h2h[1]).toFixed(2)}</b><span>${esc(m.home)} pts/game</span></div>
+        <div><b>${h2h[2] == null ? '–' : ((h2h[2] > 0 ? '+' : '') + (+h2h[2]).toFixed(1))}</b><span>${esc(m.home)} goal diff</span></div>
+      </div></div>` : ''}
+      <p class="fine">Ratings and form are as of the latest training data. The model does not see injuries, suspensions or lineups.</p>`;
+  } catch (e){ $('sheetDetail').innerHTML = errorBox(e.message); }
+}
+function closeSheet(){
+  const sheet = $('sheet'), scrim = $('scrim');
+  sheet.classList.remove('open'); scrim.classList.remove('open');
+  setTimeout(() => { sheet.hidden = true; scrim.hidden = true; }, 220);
+  SHEET_RETURN?.focus?.();
+}
+$('scrim').onclick = closeSheet;
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('sheet').hidden) closeSheet(); });
+
+/* ---------------------------------------------------------------------------
+   Messages, refresh, start-up
+--------------------------------------------------------------------------- */
+let toastTimer;
+function toast(msg, kind = 'err'){
+  $('globalMsg').innerHTML = kind === 'err' ? errorBox(msg)
+    : `<div class="alert info">${icon('check')}<span>${esc(msg)}</span></div>`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { $('globalMsg').innerHTML = ''; }, kind === 'err' ? 8000 : 4000);
+}
+
+async function showLastUpdated(){
+  try {
+    const s = await api('/stats');
+    $('lastUpdated').textContent = s.last_data_refresh
+      ? `Updated ${dayLabel(s.last_data_refresh.slice(0, 10)).toLowerCase()}` : 'Not updated yet';
+  } catch {}
+}
+
+$('refreshBtn').onclick = async () => {
+  const b = $('refreshBtn'), label = b.querySelector('span');
+  b.disabled = true; b.classList.add('spin'); label.textContent = 'Updating…';
+  const done = () => { b.disabled = false; b.classList.remove('spin'); label.textContent = 'Update data'; };
+  try {
+    await post('/refresh');
+    const poll = setInterval(async () => {
+      const s = await api('/refresh/status').catch(() => ({status: 'failed', error: 'lost contact with the app'}));
+      if (s.status === 'running') return;
+      clearInterval(poll); done();
+      if (s.status === 'failed'){ toast(s.error); return; }
+      const rep = s.report || {};
+      toast(`Updated · ${rep.settle?.settled ?? 0} prediction(s) graded · ${
+        rep.retrained ? 'model retrained' : 'model still current'}`, 'info');
+      for (const k in SCHEDULES) delete SCHEDULES[k];
+      showLastUpdated();
+      VIEWS[VIEW].load();
+    }, 2500);
+  } catch (e){ done(); toast(e.message); }
+};
+
+async function init(){
+  try {
+    const health = await api('/health');
+    if (health.status !== 'ok'){
+      MODEL_OK = false;
+      const msg = emptyState('alert', 'No trained model yet', 'Run <b>make data</b> and <b>make train</b> in the project folder, then choose Update data.');
+      ['upcomingList', 'matchList', 'historyList', 'favList'].forEach(id => { $(id).innerHTML = msg; });
+      return;
+    }
+    LEAGUES = await api('/leagues');
+    $('favLeague').innerHTML = LEAGUES.map(l => `<option value="${esc(l.code)}">${esc(leagueMeta(l.code).name)}</option>`).join('');
+    await teamsFor($('favLeague').value);
+    renderLeagueNav();
+    showLastUpdated();
+    api('/scorecard').then(s => { $('navPending').textContent = s.pending || ''; }).catch(() => {});
+    const start = (location.hash || '').slice(1);
+    show(VIEWS[start] ? start : 'upcoming');
+    loadCounts();
+  } catch (e){ toast(e.message); }
+}
+init();
+</script>
+</body>
+</html>

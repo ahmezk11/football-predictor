@@ -1,0 +1,17 @@
+{
+  "Team A v Team B": {
+    "away_win": 0.3257,
+    "draw": 0.252,
+    "home_win": 0.4223
+  },
+  "Team C v Team D": {
+    "away_win": 0.0376,
+    "draw": 0.1078,
+    "home_win": 0.8546
+  },
+  "Team E v Team F": {
+    "away_win": 0.3845,
+    "draw": 0.2486,
+    "home_win": 0.3669
+  }
+}
